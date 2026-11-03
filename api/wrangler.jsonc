@@ -13,6 +13,6 @@
   "durable_objects": {
     "bindings": [{ "name": "GAME_HUB", "class_name": "GameHub" }]
   },
-  "migrations": [{ "tag": "v1", "new_classes": ["GameHub"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameHub"] }],
   "observability": { "enabled": true }
 }
