@@ -256,23 +256,366 @@ body {
   background: var(--ink);
 }
 
-.offline {
+.target-note {
   position: absolute;
   right: clamp(16px, 3vw, 32px);
   bottom: 18px;
   margin: 0;
   font-size: 11px;
   letter-spacing: 0.4px;
-  color: rgba(242, 246, 250, 0.35);
+  color: rgba(242, 246, 250, 0.4);
   pointer-events: none;
 }
+
+/* ----------------------------------------------------------------- lobby */
+
+.lobby {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(74, 222, 128, 0.18), transparent 60%),
+    radial-gradient(900px 500px at 50% 120%, rgba(96, 165, 250, 0.16), transparent 60%),
+    #0b1016;
+  overflow-y: auto;
+}
+
+.lobby-card,
+.pair-card {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 24px;
+  padding: 32px clamp(20px, 4vw, 36px);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.brand.big {
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: -1px;
+}
+
+.tagline {
+  margin: 6px 0 22px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  margin-bottom: 18px;
+}
+
+.name-field span {
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+
+.name-field input,
+.join-row select {
+  appearance: none;
+  font: inherit;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 11px 14px;
+}
+
+.name-field input:focus,
+.join-row select:focus {
+  outline: none;
+  border-color: var(--good);
+}
+
+.status-line {
+  margin: 4px 0 18px;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.status-line.pulse {
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.error-line {
+  margin: 0 0 16px;
+  color: var(--warn);
+  font-size: 14px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.code-block {
+  margin: 18px 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--edge);
+}
+
+.code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 800;
+  text-transform: capitalize;
+  letter-spacing: -0.3px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.swatch.red { background: #ef4444; }
+.swatch.orange { background: #f97316; }
+.swatch.yellow { background: #facc15; }
+.swatch.green { background: #22c55e; }
+.swatch.blue { background: #3b82f6; }
+.swatch.purple { background: #a855f7; }
+.swatch.pink { background: #ec4899; }
+.swatch.brown { background: #92400e; }
+.swatch.black { background: #111827; }
+.swatch.white { background: #f8fafc; }
+.swatch.silver { background: #cbd5e1; }
+.swatch.gold { background: #eab308; }
+
+.join-block {
+  margin-top: 8px;
+}
+
+.join-row {
+  display: flex;
+  gap: 8px;
+}
+
+.join-row select {
+  flex: 1;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+button.primary {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  color: #06220f;
+  background: var(--good);
+  border-radius: 12px;
+  padding: 11px 20px;
+  transition: filter 0.15s, transform 0.05s;
+}
+
+button.primary:hover {
+  filter: brightness(1.08);
+}
+
+button.primary:active {
+  transform: translateY(1px);
+}
+
+button.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary.big {
+  font-size: 17px;
+  padding: 14px 26px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+button.ghost {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 11px 20px;
+}
+
+button.ghost:hover {
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ----------------------------------------------------- pairing offer */
+
+.pair-card h1 {
+  font-size: 28px;
+  margin: 2px 0 6px;
+}
+
+.pair-card h1 span {
+  color: var(--good);
+  text-transform: capitalize;
+}
+
+.waiting-note {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 18px;
+}
+
+.countdown {
+  display: grid;
+  place-items: center;
+  margin: 8px 0 22px;
+}
+
+.ring {
+  --p: 1;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--good) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.1) 0);
+  transition: background 0.9s linear;
+}
+
+.ring::before {
+  content: '';
+  position: absolute;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: #0d141d;
+}
+
+.ring b {
+  position: relative;
+  font-size: 34px;
+  font-weight: 900;
+}
+
+.card-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------- match HUD */
+
+.scoreboard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 18px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(10px);
+}
+
+.scoreboard .side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scoreboard .who {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scoreboard b {
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.scoreboard .vs {
+  color: var(--muted);
+}
+
+.role-badge {
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+}
+
+.role-badge.striker { color: var(--good); }
+.role-badge.keeper { color: var(--stop); }
+
+/* --------------------------------------------------- end-of-match overlay */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 8, 13, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.card {
+  width: min(400px, 90%);
+  text-align: center;
+  padding: 32px;
+  border-radius: 22px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.card h2 {
+  font-size: 32px;
+  margin: 0 0 6px;
+}
+
+.card h2.win { color: var(--good); }
+.card h2.lose { color: var(--warn); }
+
+.final-score {
+  font-size: 40px;
+  font-weight: 900;
+  margin: 8px 0 22px;
+}
+
 
 @media (max-width: 700px) {
   .top {
     flex-wrap: wrap;
     gap: 10px;
   }
-  .offline {
+  .target-note {
     display: none;
   }
 }

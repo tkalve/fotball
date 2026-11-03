@@ -4,7 +4,7 @@
 export const GOAL_CROSSBAR_HEIGHT = 2.44
 export const PENALTY_SPOT_Z = 8
 
-/** Markings are sized for a small-sided pitch, to match the goal in goall.glb. */
+/** Markings are sized for a small-sided pitch, to match the goal in NewGoalll.glb. */
 export const PENALTY_AREA_DEPTH = 8.5
 export const PENALTY_AREA_HALF_WIDTH = 7
 export const GOAL_AREA_DEPTH = 3.2

@@ -37,6 +37,13 @@ export type GameState = {
   hint: string
 }
 
+/** Outbound hooks the online layer wires up; null while playing offline. */
+export type NetHooks = {
+  shoot: (s: { target: { x: number; y: number }; speed: number; curve: number }) => void
+  dive: (d: { x: number; y: number }) => void
+  result: (outcome: Outcome) => void
+}
+
 const RESULT_HOLD = 1.9
 const FLIGHT_TIMEOUT = 4.5
 
@@ -83,6 +90,9 @@ export class Game {
     keeper: { faced: 0, saves: 0 },
   }
 
+  private online = false
+  private net: NetHooks | null = null
+
   private listeners = new Set<(s: GameState) => void>()
   private loading = true
   private running = false
@@ -126,7 +136,7 @@ export class Game {
     this.bindInput()
 
     if (import.meta.env.DEV) {
-      ;(window as unknown as Record<string, unknown>).goall = this
+      ;(window as unknown as Record<string, unknown>).fotball = this
     }
   }
 
@@ -175,6 +185,41 @@ export class Game {
     this.emit()
   }
 
+  // -------------------------------------------------------------------- online
+
+  /** Switch the game into networked play. Disables all AI and local scoring. */
+  enableOnline(hooks: NetHooks) {
+    this.online = true
+    this.net = hooks
+  }
+
+  /** The server assigns a role each round; strikers shoot, keepers dive. */
+  beginRound(role: Mode) {
+    this.mode = role
+    this.camera = role === 'striker' ? this.strikerCam : this.keeperCam
+    this.resize()
+    this.resetRound()
+  }
+
+  /** Keeper side: the opponent's shot arrived — launch the incoming ball. */
+  applyRemoteShoot(shot: { target: { x: number; y: number }; speed: number; curve: number }) {
+    if (!this.online || this.mode !== 'keeper' || this.phase !== 'ready') return
+    this.shotTarget.set(shot.target.x, shot.target.y, 0)
+    this.launch(this.shotTarget, shot.speed, shot.curve)
+  }
+
+  /** Striker side: animate the opponent keeper committing to a dive. */
+  applyRemoteDive(dive: { x: number; y: number }) {
+    if (!this.online || this.mode !== 'striker') return
+    this.keeper.dive(dive.x, dive.y)
+  }
+
+  /** Striker side: the keeper is authoritative, so take its outcome as truth. */
+  applyRemoteResult(outcome: Outcome) {
+    if (!this.online || this.mode !== 'striker') return
+    this.finish(outcome)
+  }
+
   // ---------------------------------------------------------------- round flow
 
   private resetRound() {
@@ -190,7 +235,7 @@ export class Game {
     this.keeper.reset()
     this.aim.set(0, 1.1, 0)
 
-    if (this.mode === 'keeper') {
+    if (this.mode === 'keeper' && !this.online) {
       this.shotTarget.copy(this.pickAiShot())
       const bias = clamp(this.shotTarget.x / this.world.goal.innerHalfWidth, -1, 1)
       this.striker.reset(bias * (Math.random() < 0.75 ? 1 : -0.4))
@@ -234,7 +279,9 @@ export class Game {
     this.saved = false
     this.outcome = null
 
-    if (this.mode === 'striker') {
+    if (this.online) {
+      // Score lives on the server; AI keeper stays out of networked rounds.
+    } else if (this.mode === 'striker') {
       this.stats.striker.shots++
       this.planAiDive(target)
     } else {
@@ -269,9 +316,21 @@ export class Game {
     this.outcome = outcome
     this.phase = 'result'
     this.timer = 0
-    if (this.mode === 'striker' && outcome === 'goal') this.stats.striker.goals++
-    if (this.mode === 'keeper' && outcome !== 'goal') this.stats.keeper.saves++
+    if (!this.online) {
+      if (this.mode === 'striker' && outcome === 'goal') this.stats.striker.goals++
+      if (this.mode === 'keeper' && outcome !== 'goal') this.stats.keeper.saves++
+    }
     this.emit()
+  }
+
+  /**
+   * Who decides the round. Offline, whoever is local decides. Online, the keeper
+   * is the single authority and reports up; the striker only waits for that word.
+   */
+  private resolve(outcome: Outcome) {
+    if (this.online && this.mode === 'striker') return
+    this.finish(outcome)
+    if (this.online && this.mode === 'keeper') this.net?.result(outcome)
   }
 
   // ------------------------------------------------------------------ the loop
@@ -294,25 +353,25 @@ export class Game {
       this.powerT = (this.powerT + dt / POWER_SWEEP) % 2
     }
 
-    if (this.mode === 'keeper' && this.phase === 'ready') {
+    if (this.mode === 'keeper' && this.phase === 'ready' && !this.online) {
       this.runUpDelay -= dt
       if (this.runUpDelay <= 0) this.striker.beginRunUp()
       if (this.striker.update(dt)) {
         const speed = MIN_SHOT_SPEED + Math.random() * (MAX_SHOT_SPEED - MIN_SHOT_SPEED)
         this.launch(this.shotTarget, speed, (Math.random() - 0.5) * 1.1)
       }
-    } else if (this.mode === 'keeper') {
+    } else if (this.mode === 'keeper' && !this.online) {
       this.striker.update(dt)
     }
 
     if (this.phase === 'flight') {
       this.flightTime += dt
-      if (this.mode === 'striker' && this.flightTime >= this.aiDiveAt) {
+      if (!this.online && this.mode === 'striker' && this.flightTime >= this.aiDiveAt) {
         this.keeper.dive(this.aiDiveTarget.x, this.aiDiveTarget.y)
         this.aiDiveAt = Infinity
       }
       this.stepFlight(dt)
-      if (!this.outcome && this.flightTime > FLIGHT_TIMEOUT) this.finish('miss')
+      if (!this.outcome && this.flightTime > FLIGHT_TIMEOUT) this.resolve('miss')
     }
 
     this.keeper.update(dt)
@@ -320,7 +379,8 @@ export class Game {
     if (this.phase === 'result') {
       this.timer += dt
       this.stepFlight(dt)
-      if (this.timer > RESULT_HOLD) this.resetRound()
+      // Online, the server decides when the next round starts.
+      if (this.timer > RESULT_HOLD && !this.online) this.resetRound()
     }
 
     this.updateMarkers()
@@ -370,7 +430,7 @@ export class Game {
       if (this.ball.velocity.z < 1) this.ball.velocity.z = 1 + Math.random() * 3
       this.ball.spin.multiplyScalar(0.2)
       this.saved = true
-      this.finish('save')
+      this.resolve('save')
       return true
     }
     return false
@@ -386,7 +446,7 @@ export class Game {
     const insideX = Math.abs(x) < g.innerHalfWidth - BALL_RADIUS * 0.3
     const insideY = y < g.innerHeight - BALL_RADIUS * 0.3
     if (insideX && insideY && y > 0) {
-      this.finish('goal')
+      this.resolve('goal')
       return
     }
 
@@ -397,11 +457,11 @@ export class Game {
       this.ball.velocity.z = Math.abs(this.ball.velocity.z) * 0.55
       this.ball.velocity.x *= 0.6
       this.ball.spin.multiplyScalar(0.3)
-      this.finish('post')
+      this.resolve('post')
       return
     }
 
-    this.finish('miss')
+    this.resolve('miss')
   }
 
   /** Stops a scored ball from flying out through the back of the net. */
@@ -554,7 +614,9 @@ export class Game {
       this.chargeStartPx = this.pointerPx.x
       this.emit()
     } else {
+      if (this.keeper.hasCommitted) return
       this.keeper.dive(this.aim.x, this.aim.y)
+      if (this.online) this.net?.dive({ x: this.aim.x, y: this.aim.y })
       this.emit()
     }
   }
@@ -564,6 +626,13 @@ export class Game {
     const power = this.powerLevel()
     const speed = MIN_SHOT_SPEED + power * (MAX_SHOT_SPEED - MIN_SHOT_SPEED)
     this.shotTarget.copy(this.aim)
+    if (this.online) {
+      this.net?.shoot({
+        target: { x: this.shotTarget.x, y: this.shotTarget.y },
+        speed,
+        curve: this.curve,
+      })
+    }
     this.launch(this.shotTarget, speed, this.curve)
   }
 
@@ -586,6 +655,7 @@ export class Game {
     if (!t) return
     e.preventDefault()
     this.keeper.dive(t[0], t[1])
+    if (this.online) this.net?.dive({ x: t[0], y: t[1] })
     this.emit()
   }
 
