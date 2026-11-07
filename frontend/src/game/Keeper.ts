@@ -27,7 +27,7 @@ export class Keeper {
   private diving = false
   private elapsed = 0
   private clock = 0
-  private readyX = 0
+  private readyBias = 0
 
   private _lead = new THREE.Vector3()
   private _trail = new THREE.Vector3()
@@ -56,16 +56,15 @@ export class Keeper {
   reset() {
     this.diving = false
     this.elapsed = 0
-    this.readyX = 0
+    this.readyBias = 0
     this.target.set(0, 1.1, 0)
     this.pose(0)
   }
 
-  /** Slide along the line towards `x` while still set, before committing. */
+  /** Lean and turn towards `x` while still set, before committing. */
   setReadyAim(x: number) {
     if (this.diving) return
-    const lim = this.halfWidth * 0.75
-    this.readyX = Math.max(-lim, Math.min(lim, x * 0.75))
+    this.readyBias = Math.max(-1, Math.min(1, x / this.halfWidth))
   }
 
   dive(x: number, y: number) {
@@ -91,8 +90,11 @@ export class Keeper {
     const lowness = 1 - Math.min(1, Math.max(0, ty / 2.3)) * 0.3
     const tilt = Math.max(-1.1, Math.min(1.1, tx / this.halfWidth)) * 0.95 * lowness
 
-    this.object.position.set(this.readyX * (1 - s), lift * s, KEEPER_Z + 0.2 * s)
-    f.body.rotation.z = -tilt * s
+    const b = this.readyBias
+    // Mostly lean and turn towards the chosen side; only a small step across.
+    this.object.position.set(b * this.halfWidth * 0.2 * (1 - s), lift * s, KEEPER_Z + 0.2 * s)
+    this.object.rotation.y = b * 0.33 * (1 - s)
+    f.body.rotation.z = -tilt * s - b * 0.28 * (1 - s)
     f.body.rotation.x = -0.12 * s
 
     const bob = this.diving ? 0 : Math.sin(this.clock * 3.1) * 0.015

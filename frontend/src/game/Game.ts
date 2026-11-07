@@ -39,6 +39,7 @@ export type GameState = {
 
 /** Outbound hooks the online layer wires up; null while playing offline. */
 export type NetHooks = {
+  aim: (x: number) => void
   shoot: (s: { target: { x: number; y: number }; speed: number; curve: number }) => void
   dive: (d: { x: number; y: number }) => void
   result: (outcome: Outcome) => void
@@ -93,6 +94,7 @@ export class Game {
 
   private pendingShot: { target: THREE.Vector3; speed: number; curve: number } | null = null
   private slowmoTime = 0
+  private lastSentAimX = Infinity
 
   private stats: Stats = {
     striker: { shots: 0, goals: 0 },
@@ -244,6 +246,20 @@ export class Game {
     this.finish(outcome)
   }
 
+  /** The opponent's pre-commit lean — drive their figure on our screen. */
+  applyRemoteAim(x: number) {
+    if (!this.online) return
+    if (this.mode === 'keeper') {
+      // We watch the striker: only read their lean before the shot launches.
+      if (this.phase === 'ready' || this.phase === 'winding') {
+        this.striker.ready(x, this.world.goal.innerHalfWidth)
+      }
+    } else if (!this.keeper.hasCommitted) {
+      // We watch the keeper leaning along their line before diving.
+      this.keeper.setReadyAim(x)
+    }
+  }
+
   // ---------------------------------------------------------------- round flow
 
   private resetRound() {
@@ -257,18 +273,21 @@ export class Game {
     this.aiDiveAt = Infinity
     this.pendingShot = null
     this.slowmoTime = 0
+    this.lastSentAimX = Infinity
     this.ball.place(0, BALL_RADIUS, PENALTY_SPOT_Z)
     this.keeper.reset()
     this.aim.set(0, 1.1, 0)
 
-    if (this.mode === 'keeper' && !this.online) {
+    if (this.online) {
+      // Both figures are shown on both screens; each leans towards their own
+      // aim and the opponent's lean is relayed in via applyRemoteAim.
+      this.striker.ready(0, this.world.goal.innerHalfWidth)
+      this.keeper.setReadyAim(0)
+    } else if (this.mode === 'keeper') {
       this.shotTarget.copy(this.pickAiShot())
       const bias = clamp(this.shotTarget.x / this.world.goal.innerHalfWidth, -1, 1)
       this.striker.reset(bias * (Math.random() < 0.75 ? 1 : -0.4))
       this.runUpDelay = 0.7 + Math.random() * 0.6
-    } else if (this.mode === 'striker' && this.online) {
-      // Show the striker getting ready; the run-up flows on from here.
-      this.striker.ready(0, this.world.goal.innerHalfWidth)
     } else {
       this.striker.object.visible = false
     }
@@ -400,6 +419,18 @@ export class Game {
     }
     if (this.mode === 'keeper' && !this.keeper.hasCommitted && this.phase !== 'result') {
       this.keeper.setReadyAim(this.aim.x)
+    }
+
+    // Relay our own lean so the opponent sees us positioning in real time.
+    if (this.online) {
+      const leaning =
+        this.mode === 'striker'
+          ? this.phase === 'ready' || this.phase === 'charging'
+          : !this.keeper.hasCommitted && this.phase !== 'result'
+      if (leaning && Math.abs(this.aim.x - this.lastSentAimX) > 0.04) {
+        this.lastSentAimX = this.aim.x
+        this.net?.aim(this.aim.x)
+      }
     }
 
     // Both ends read the opening of the shot in slow motion, ramping back up to

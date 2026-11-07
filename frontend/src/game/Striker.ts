@@ -16,6 +16,7 @@ export class Striker {
   private t = 0
   private running = false
   private contacted = false
+  private leanBias = 0
 
   constructor() {
     this.figure = createFigure(KIT_STRIKER, 0x2a2f45, 0xd9a06a)
@@ -29,7 +30,8 @@ export class Striker {
     this.running = false
     this.contacted = false
     this.t = 0
-    this.start.set(-bias * 1.9, 0, PENALTY_SPOT_Z + 3.3)
+    this.leanBias = Math.max(-1, Math.min(1, bias))
+    this.start.set(-this.leanBias * 0.9, 0, PENALTY_SPOT_Z + 3.3)
     this.object.position.copy(this.start)
     this.object.visible = true
     this.pose(0)
@@ -42,16 +44,12 @@ export class Striker {
   }
 
   /**
-   * Idle a few steps back from the ball before the run-up, sliding sideways
+   * Idle a few steps back from the ball before the run-up, leaning and turning
    * towards `aimX` so the stance reads as a getting-ready tell.
    */
   ready(aimX: number, halfWidth: number) {
     if (this.running) return
-    const bias = Math.max(-1, Math.min(1, aimX / halfWidth))
-    this.start.set(-bias * 1.9, 0, PENALTY_SPOT_Z + 3.3)
-    this.object.position.copy(this.start)
-    this.object.visible = true
-    this.pose(0)
+    this.reset(aimX / halfWidth)
   }
 
   get runUpProgress() {
@@ -76,6 +74,23 @@ export class Striker {
 
   private pose(t: number) {
     const f = this.figure
+
+    if (!this.running) {
+      // Getting-ready stance: stand a few steps back and lean/turn towards the
+      // aim rather than sliding bodily across.
+      this.object.position.copy(this.start)
+      this.object.rotation.y = Math.PI + this.leanBias * 0.3
+      f.body.rotation.x = 0.03
+      f.body.rotation.z = -this.leanBias * 0.26
+      swingLimb(f.legs[0], 0.06, -0.2)
+      swingLimb(f.legs[1], 0.06, 0.2)
+      swingLimb(f.shoulders[0], -0.12, -0.34)
+      swingLimb(f.shoulders[1], -0.12, 0.34)
+      f.hips.position.y = 0.92
+      this.object.updateMatrixWorld(true)
+      return
+    }
+
     const run = Math.min(1, t / RUNUP_TIME)
 
     // Accelerate into the ball rather than gliding at a constant speed.

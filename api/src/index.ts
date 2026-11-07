@@ -165,6 +165,9 @@ export class GameHub implements DurableObject {
       case 'leave':
         this.handleLeave(player)
         break
+      case 'aim':
+        this.relayAim(player, msg)
+        break
       case 'shoot':
         this.relayShoot(player, msg)
         break
@@ -281,8 +284,15 @@ export class GameHub implements DurableObject {
     this.broadcastLounge()
   }
 
-  private relayShoot(player: Player, msg: Extract<ClientMessage, { type: 'shoot' }>) {
+  /** Pre-commit lean, relayed to the opponent so they see you positioning. */
+  private relayAim(player: Player, msg: Extract<ClientMessage, { type: 'aim' }>) {
     const match = this.matchOf(player)
+    if (!match) return
+    const other = this.opponentOf(match, player.id)
+    if (other) this.send(other, { type: 'aim', x: msg.x })
+  }
+
+  private relayShoot(player: Player, msg: Extract<ClientMessage, { type: 'shoot' }>) {    const match = this.matchOf(player)
     if (!match || match.state !== 'await-shoot') return
     if (match.players[match.striker] !== player.id) return
     match.state = 'await-result'

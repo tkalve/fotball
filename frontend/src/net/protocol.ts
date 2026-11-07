@@ -11,6 +11,7 @@ export type ClientMessage =
   | { type: 'decline' }
   | { type: 'joinCode'; color: string; object: string }
   | { type: 'leave' }
+  | { type: 'aim'; x: number }
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
   | { type: 'dive'; x: number; y: number }
   | { type: 'result'; outcome: Outcome }
@@ -22,6 +23,7 @@ export type ServerMessage =
   | { type: 'offerCancelled'; reason: string }
   | { type: 'matchStart'; role: Role; opponentName: string; target: number }
   | { type: 'round'; index: number; role: Role; scoreYou: number; scoreThem: number }
+  | { type: 'aim'; x: number }
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
   | { type: 'dive'; x: number; y: number }
   | {

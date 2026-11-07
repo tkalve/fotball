@@ -15,6 +15,7 @@ export type ClientMessage =
   | { type: 'decline' } // decline a pairing offer
   | { type: 'joinCode'; color: string; object: string }
   | { type: 'leave' } // leave the current match / offer, back to lounge
+  | { type: 'aim'; x: number } // lateral lean before committing, relayed to the opponent
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
   | { type: 'dive'; x: number; y: number }
   | { type: 'result'; outcome: Outcome }
@@ -27,6 +28,7 @@ export type ServerMessage =
   | { type: 'offerCancelled'; reason: string }
   | { type: 'matchStart'; role: Role; opponentName: string; target: number }
   | { type: 'round'; index: number; role: Role; scoreYou: number; scoreThem: number }
+  | { type: 'aim'; x: number } // the opponent's lateral lean before committing
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
   | { type: 'dive'; x: number; y: number }
   | {

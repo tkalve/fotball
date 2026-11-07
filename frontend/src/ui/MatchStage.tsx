@@ -41,6 +41,7 @@ export function MatchStage({
     gameRef.current = game
     setGame(game)
     game.enableOnline({
+      aim: (x) => client.send({ type: 'aim', x }),
       shoot: (s) => client.send({ type: 'shoot', ...s }),
       dive: (d) => client.send({ type: 'dive', ...d }),
       result: (outcome) => client.send({ type: 'result', outcome }),
@@ -60,6 +61,9 @@ export function MatchStage({
     const off = client.on((msg: ServerMessage) => {
       const game = gameRef.current
       switch (msg.type) {
+        case 'aim':
+          game?.applyRemoteAim(msg.x)
+          break
         case 'shoot':
           game?.applyRemoteShoot(msg)
           break
