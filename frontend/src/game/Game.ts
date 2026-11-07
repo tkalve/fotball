@@ -47,6 +47,13 @@ export type NetHooks = {
 const RESULT_HOLD = 1.9
 const FLIGHT_TIMEOUT = 4.5
 
+// Keeper-only: hold the ball on the spot for a beat so the keeper can set, then
+// play the first moments of the shot in slow motion, easing back to real speed,
+// so there is time to read it and dive.
+const KEEPER_READY_PAUSE = 1.0
+const KEEPER_SLOWMO_DURATION = 0.7
+const KEEPER_SLOWMO_SCALE = 0.3
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 export class Game {
@@ -84,6 +91,10 @@ export class Game {
   private aiDiveAt = Infinity
   private aiDiveTarget = new THREE.Vector2()
   private runUpDelay = 0
+
+  private pendingShot: { target: THREE.Vector3; speed: number; curve: number } | null = null
+  private readyTimer = 0
+  private slowmoTime = 0
 
   private stats: Stats = {
     striker: { shots: 0, goals: 0 },
@@ -201,11 +212,16 @@ export class Game {
     this.resetRound()
   }
 
-  /** Keeper side: the opponent's shot arrived — launch the incoming ball. */
+  /** Keeper side: the opponent's shot arrived — set, then launch it in slow-mo. */
   applyRemoteShoot(shot: { target: { x: number; y: number }; speed: number; curve: number }) {
     if (!this.online || this.mode !== 'keeper' || this.phase !== 'ready') return
-    this.shotTarget.set(shot.target.x, shot.target.y, 0)
-    this.launch(this.shotTarget, shot.speed, shot.curve)
+    this.pendingShot = {
+      target: new THREE.Vector3(shot.target.x, shot.target.y, 0),
+      speed: shot.speed,
+      curve: shot.curve,
+    }
+    this.readyTimer = KEEPER_READY_PAUSE
+    this.emit()
   }
 
   /** Striker side: animate the opponent keeper committing to a dive. */
@@ -231,6 +247,9 @@ export class Game {
     this.timer = 0
     this.flightTime = 0
     this.aiDiveAt = Infinity
+    this.pendingShot = null
+    this.readyTimer = 0
+    this.slowmoTime = 0
     this.ball.place(0, BALL_RADIUS, PENALTY_SPOT_Z)
     this.keeper.reset()
     this.aim.set(0, 1.1, 0)
@@ -353,6 +372,30 @@ export class Game {
       this.powerT = (this.powerT + dt / POWER_SWEEP) % 2
     }
 
+    // Online keeper: hold the ball on the spot for a beat so the keeper can set,
+    // then launch the queued shot.
+    if (this.online && this.mode === 'keeper' && this.pendingShot && this.phase === 'ready') {
+      this.readyTimer -= dt
+      if (this.readyTimer <= 0) {
+        const s = this.pendingShot
+        this.pendingShot = null
+        this.slowmoTime = 0
+        this.launch(s.target, s.speed, s.curve)
+      }
+    }
+
+    // The keeper reads the opening of the shot in slow motion, ramping back up
+    // to real speed; everything the keeper sees shares one time scale so it
+    // stays coherent.
+    let scale = 1
+    if (this.online && this.mode === 'keeper' && this.phase === 'flight') {
+      this.slowmoTime += dt
+      scale =
+        KEEPER_SLOWMO_SCALE +
+        (1 - KEEPER_SLOWMO_SCALE) * clamp(this.slowmoTime / KEEPER_SLOWMO_DURATION, 0, 1)
+    }
+    const sdt = dt * scale
+
     if (this.mode === 'keeper' && this.phase === 'ready' && !this.online) {
       this.runUpDelay -= dt
       if (this.runUpDelay <= 0) this.striker.beginRunUp()
@@ -365,16 +408,16 @@ export class Game {
     }
 
     if (this.phase === 'flight') {
-      this.flightTime += dt
+      this.flightTime += sdt
       if (!this.online && this.mode === 'striker' && this.flightTime >= this.aiDiveAt) {
         this.keeper.dive(this.aiDiveTarget.x, this.aiDiveTarget.y)
         this.aiDiveAt = Infinity
       }
-      this.stepFlight(dt)
+      this.stepFlight(sdt)
       if (!this.outcome && this.flightTime > FLIGHT_TIMEOUT) this.resolve('miss')
     }
 
-    this.keeper.update(dt)
+    this.keeper.update(sdt)
 
     if (this.phase === 'result') {
       this.timer += dt
@@ -384,7 +427,7 @@ export class Game {
     }
 
     this.updateMarkers()
-    this.updateCamera(dt)
+    this.updateCamera(sdt)
     this.world.focusShadows(clamp(this.ball.position.z, 0, 12))
   }
 
@@ -684,7 +727,10 @@ export class Game {
       if (this.phase === 'ready') return 'Aim with the mouse, hold to build power'
       return ''
     }
-    if (this.phase === 'ready') return 'Pick your spot and click to dive — or use Q W E / A S D'
+    if (this.phase === 'ready') {
+      if (this.online && this.pendingShot) return 'Here it comes — get ready!'
+      return 'Pick your spot and click to dive — or use Q W E / A S D'
+    }
     return ''
   }
 
