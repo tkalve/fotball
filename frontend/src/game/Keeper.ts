@@ -67,6 +67,11 @@ export class Keeper {
     this.readyBias = Math.max(-1, Math.min(1, x / this.halfWidth))
   }
 
+  /** Recolour the shirt so a player's colour follows them across role swaps. */
+  setKit(color: number) {
+    this.figure.shirt.color.setHex(color)
+  }
+
   dive(x: number, y: number) {
     if (this.diving) return
     this.target.set(x, y, 0)
@@ -92,9 +97,9 @@ export class Keeper {
 
     const b = this.readyBias
     // Mostly lean and turn towards the chosen side; only a small step across.
-    this.object.position.set(b * this.halfWidth * 0.2 * (1 - s), lift * s, KEEPER_Z + 0.2 * s)
-    this.object.rotation.y = b * 0.33 * (1 - s)
-    f.body.rotation.z = -tilt * s - b * 0.28 * (1 - s)
+    this.object.position.set(b * this.halfWidth * 0.26 * (1 - s), lift * s, KEEPER_Z + 0.2 * s)
+    this.object.rotation.y = b * 0.45 * (1 - s)
+    f.body.rotation.z = -tilt * s - b * 0.34 * (1 - s)
     f.body.rotation.x = -0.12 * s
 
     const bob = this.diving ? 0 : Math.sin(this.clock * 3.1) * 0.015

@@ -43,6 +43,11 @@ export class Striker {
     this.t = 0
   }
 
+  /** Recolour the shirt so a player's colour follows them across role swaps. */
+  setKit(color: number) {
+    this.figure.shirt.color.setHex(color)
+  }
+
   /**
    * Idle a few steps back from the ball before the run-up, leaning and turning
    * towards `aimX` so the stance reads as a getting-ready tell.
@@ -79,9 +84,9 @@ export class Striker {
       // Getting-ready stance: stand a few steps back and lean/turn towards the
       // aim rather than sliding bodily across.
       this.object.position.copy(this.start)
-      this.object.rotation.y = Math.PI + this.leanBias * 0.3
+      this.object.rotation.y = Math.PI + this.leanBias * 0.5
       f.body.rotation.x = 0.03
-      f.body.rotation.z = -this.leanBias * 0.26
+      f.body.rotation.z = -this.leanBias * 0.34
       swingLimb(f.legs[0], 0.06, -0.2)
       swingLimb(f.legs[1], 0.06, 0.2)
       swingLimb(f.shoulders[0], -0.12, -0.34)

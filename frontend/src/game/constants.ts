@@ -33,5 +33,9 @@ export const PITCH_LENGTH = 130
 export const KIT_KEEPER = 0x1fc47a
 export const KIT_STRIKER = 0xe8453c
 
+/** Online, kits follow the player: the starting striker keeps home, the other away. */
+export const KIT_HOME = 0xe8453c
+export const KIT_AWAY = 0x2f74d0
+
 /** Physics runs on fixed substeps so a 29 m/s ball cannot tunnel through a glove. */
 export const PHYSICS_STEP = 1 / 360

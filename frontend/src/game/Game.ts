@@ -7,6 +7,8 @@ import { solveShot } from './physics'
 import {
   BALL_RADIUS,
   GOAL_CROSSBAR_HEIGHT,
+  KIT_AWAY,
+  KIT_HOME,
   MAX_CURVE,
   MAX_SHOT_SPEED,
   MIN_SHOT_SPEED,
@@ -103,6 +105,8 @@ export class Game {
 
   private online = false
   private net: NetHooks | null = null
+  /** The local player's role at kick-off, so their kit colour can follow them. */
+  private homeRole: Mode | null = null
 
   private listeners = new Set<(s: GameState) => void>()
   private loading = true
@@ -206,6 +210,7 @@ export class Game {
 
   /** The server assigns a role each round; strikers shoot, keepers dive. */
   beginRound(role: Mode) {
+    if (this.homeRole === null) this.homeRole = role
     this.mode = role
     this.camera = role === 'striker' ? this.strikerCam : this.keeperCam
     this.resize()
@@ -280,9 +285,11 @@ export class Game {
 
     if (this.online) {
       // Both figures are shown on both screens; each leans towards their own
-      // aim and the opponent's lean is relayed in via applyRemoteAim.
-      this.striker.ready(0, this.world.goal.innerHalfWidth)
+      // aim and the opponent's lean is relayed in via applyRemoteAim. Use a
+      // full reset (not ready()) so the striker's run-up state is cleared.
+      this.striker.reset(0)
       this.keeper.setReadyAim(0)
+      this.applyKits()
     } else if (this.mode === 'keeper') {
       this.shotTarget.copy(this.pickAiShot())
       const bias = clamp(this.shotTarget.x / this.world.goal.innerHalfWidth, -1, 1)
@@ -294,6 +301,23 @@ export class Game {
 
     this.snapCamera()
     this.emit()
+  }
+
+  /**
+   * Online, the kit colour follows the player across role swaps: the player who
+   * kicked off as striker keeps the home kit, their opponent the away kit, so
+   * the two figures trade colours each round as the roles swap.
+   */
+  private applyKits() {
+    const mine = this.homeRole === 'keeper' ? KIT_AWAY : KIT_HOME
+    const theirs = this.homeRole === 'keeper' ? KIT_HOME : KIT_AWAY
+    if (this.mode === 'striker') {
+      this.striker.setKit(mine)
+      this.keeper.setKit(theirs)
+    } else {
+      this.keeper.setKit(mine)
+      this.striker.setKit(theirs)
+    }
   }
 
   /** Where the computer striker aims: corners most of the time, but not always. */

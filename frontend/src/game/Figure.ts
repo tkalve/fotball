@@ -21,6 +21,8 @@ export type Figure = {
   legs: [THREE.Group, THREE.Group]
   feet: [THREE.Object3D, THREE.Object3D]
   hitSpheres: HitSphere[]
+  /** The kit (shirt/arm) material, so the figure can be recoloured per player. */
+  shirt: THREE.MeshStandardMaterial
 }
 
 const DOWN = new THREE.Vector3(0, -1, 0)
@@ -137,7 +139,7 @@ export function createFigure(kit: number, trim: number, hands: number): Figure {
     }
   }
 
-  return { root, body, hips, head, shoulders, gloves, legs, feet, hitSpheres }
+  return { root, body, hips, head, shoulders, gloves, legs, feet, hitSpheres, shirt }
 }
 
 /**
