@@ -4,6 +4,7 @@ import { Keeper } from './Keeper'
 import { Striker } from './Striker'
 import { World } from './World'
 import { solveShot } from './physics'
+import { RUNUP_TIME } from './Striker'
 import {
   BALL_RADIUS,
   GOAL_CROSSBAR_HEIGHT,
@@ -16,7 +17,7 @@ import {
 } from './constants'
 
 export type Mode = 'striker' | 'keeper'
-export type Phase = 'ready' | 'charging' | 'flight' | 'result'
+export type Phase = 'ready' | 'charging' | 'winding' | 'flight' | 'result'
 export type Outcome = 'goal' | 'save' | 'post' | 'miss'
 
 export type Stats = {
@@ -47,12 +48,12 @@ export type NetHooks = {
 const RESULT_HOLD = 1.9
 const FLIGHT_TIMEOUT = 4.5
 
-// Keeper-only: hold the ball on the spot for a beat so the keeper can set, then
-// play the first moments of the shot in slow motion, easing back to real speed,
-// so there is time to read it and dive.
-const KEEPER_READY_PAUSE = 1.0
-const KEEPER_SLOWMO_DURATION = 0.7
-const KEEPER_SLOWMO_SCALE = 0.3
+// Online only, on both ends: hold the ball on the spot for a wind-up (the keeper
+// watches the striker's run-up and reads the tell), then play the opening of the
+// shot in slow motion, easing back to real speed, so there is time to react.
+const WINDUP_TIME = RUNUP_TIME
+const SLOWMO_DURATION = 0.7
+const SLOWMO_SCALE = 0.3
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -93,7 +94,7 @@ export class Game {
   private runUpDelay = 0
 
   private pendingShot: { target: THREE.Vector3; speed: number; curve: number } | null = null
-  private readyTimer = 0
+  private windupTimer = 0
   private slowmoTime = 0
 
   private stats: Stats = {
@@ -212,15 +213,29 @@ export class Game {
     this.resetRound()
   }
 
-  /** Keeper side: the opponent's shot arrived — set, then launch it in slow-mo. */
+  /** Keeper side: the opponent's shot arrived — wind up, then launch in slow-mo. */
   applyRemoteShoot(shot: { target: { x: number; y: number }; speed: number; curve: number }) {
     if (!this.online || this.mode !== 'keeper' || this.phase !== 'ready') return
-    this.pendingShot = {
-      target: new THREE.Vector3(shot.target.x, shot.target.y, 0),
-      speed: shot.speed,
-      curve: shot.curve,
+    this.beginWindup(new THREE.Vector3(shot.target.x, shot.target.y, 0), shot.speed, shot.curve)
+  }
+
+  /**
+   * Online only: hold the ball for a wind-up before launching, shown on both
+   * ends. The keeper watches the striker's run-up (leaning towards the shot) so
+   * they can read it; the striker gets the matching beat so the save attempt
+   * relayed back lands in time with the slow-motion flight.
+   */
+  private beginWindup(target: THREE.Vector3, speed: number, curve: number) {
+    this.pendingShot = { target: target.clone(), speed, curve }
+    this.phase = 'winding'
+    this.slowmoTime = 0
+    if (this.mode === 'keeper') {
+      const bias = clamp(target.x / this.world.goal.innerHalfWidth, -1, 1)
+      this.striker.reset(bias * 0.9)
+      this.striker.beginRunUp()
+    } else {
+      this.windupTimer = WINDUP_TIME
     }
-    this.readyTimer = KEEPER_READY_PAUSE
     this.emit()
   }
 
@@ -248,7 +263,7 @@ export class Game {
     this.flightTime = 0
     this.aiDiveAt = Infinity
     this.pendingShot = null
-    this.readyTimer = 0
+    this.windupTimer = 0
     this.slowmoTime = 0
     this.ball.place(0, BALL_RADIUS, PENALTY_SPOT_Z)
     this.keeper.reset()
@@ -372,11 +387,14 @@ export class Game {
       this.powerT = (this.powerT + dt / POWER_SWEEP) % 2
     }
 
-    // Online keeper: hold the ball on the spot for a beat so the keeper can set,
-    // then launch the queued shot.
-    if (this.online && this.mode === 'keeper' && this.pendingShot && this.phase === 'ready') {
-      this.readyTimer -= dt
-      if (this.readyTimer <= 0) {
+    // Online wind-up: the ball waits on the spot before launching. On the keeper
+    // the striker's run-up drives the timing (and gives the tell to read); on the
+    // striker a plain timer keeps both ends roughly in step. The wind-up itself
+    // plays at real speed.
+    if (this.phase === 'winding' && this.pendingShot) {
+      const contact =
+        this.mode === 'keeper' ? this.striker.update(dt) : (this.windupTimer -= dt) <= 0
+      if (contact) {
         const s = this.pendingShot
         this.pendingShot = null
         this.slowmoTime = 0
@@ -384,15 +402,12 @@ export class Game {
       }
     }
 
-    // The keeper reads the opening of the shot in slow motion, ramping back up
-    // to real speed; everything the keeper sees shares one time scale so it
-    // stays coherent.
+    // Both ends read the opening of the shot in slow motion, ramping back up to
+    // real speed; everything shares one time scale so it stays coherent.
     let scale = 1
-    if (this.online && this.mode === 'keeper' && this.phase === 'flight') {
+    if (this.online && this.phase === 'flight') {
       this.slowmoTime += dt
-      scale =
-        KEEPER_SLOWMO_SCALE +
-        (1 - KEEPER_SLOWMO_SCALE) * clamp(this.slowmoTime / KEEPER_SLOWMO_DURATION, 0, 1)
+      scale = SLOWMO_SCALE + (1 - SLOWMO_SCALE) * clamp(this.slowmoTime / SLOWMO_DURATION, 0, 1)
     }
     const sdt = dt * scale
 
@@ -405,6 +420,9 @@ export class Game {
       }
     } else if (this.mode === 'keeper' && !this.online) {
       this.striker.update(dt)
+    } else if (this.mode === 'keeper' && this.online && this.phase !== 'winding') {
+      // Keep the striker's follow-through alive, slowed with the rest of the shot.
+      this.striker.update(sdt)
     }
 
     if (this.phase === 'flight') {
@@ -523,7 +541,7 @@ export class Game {
   // ----------------------------------------------------------------- presentation
 
   private updateMarkers() {
-    const aimingShot = this.mode === 'striker' && this.phase !== 'flight' && this.phase !== 'result'
+    const aimingShot = this.mode === 'striker' && (this.phase === 'ready' || this.phase === 'charging')
     this.reticle.visible = aimingShot
     if (aimingShot) {
       this.reticle.position.set(this.aim.x, this.aim.y, 0.06)
@@ -675,8 +693,10 @@ export class Game {
         speed,
         curve: this.curve,
       })
+      this.beginWindup(this.shotTarget, speed, this.curve)
+    } else {
+      this.launch(this.shotTarget, speed, this.curve)
     }
-    this.launch(this.shotTarget, speed, this.curve)
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -725,12 +745,11 @@ export class Game {
     if (this.mode === 'striker') {
       if (this.phase === 'charging') return 'Release to shoot — slide sideways to bend it'
       if (this.phase === 'ready') return 'Aim with the mouse, hold to build power'
+      if (this.phase === 'winding' || this.phase === 'flight') return 'Watch the keeper try to save it…'
       return ''
     }
-    if (this.phase === 'ready') {
-      if (this.online && this.pendingShot) return 'Here it comes — get ready!'
-      return 'Pick your spot and click to dive — or use Q W E / A S D'
-    }
+    if (this.phase === 'winding') return 'Read the run-up — dive to save it'
+    if (this.phase === 'ready') return 'Pick your spot and click to dive — or use Q W E / A S D'
     return ''
   }
 

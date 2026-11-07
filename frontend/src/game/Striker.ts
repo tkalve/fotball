@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { KIT_STRIKER, PENALTY_SPOT_Z } from './constants'
 import { createFigure, swingLimb, type Figure } from './Figure'
 
-const RUNUP_TIME = 1.15
+export const RUNUP_TIME = 1.15
 const FOLLOW_TIME = 0.6
 /** Which foot swings; the other one plants beside the ball. */
 const KICK_LEG = 0

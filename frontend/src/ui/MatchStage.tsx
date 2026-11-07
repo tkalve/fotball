@@ -159,9 +159,11 @@ function roleHint(role: Role, phase: string | undefined): string {
   if (role === 'striker') {
     if (phase === 'charging') return 'Release to shoot — slide sideways to bend it'
     if (phase === 'ready') return 'Your kick: aim with the mouse, hold to build power'
+    if (phase === 'winding' || phase === 'flight') return 'Watch the keeper try to save it…'
     return ''
   }
   if (phase === 'ready') return 'Get ready — watch for the shot and dive to save it'
+  if (phase === 'winding') return 'Read the run-up — dive to save it'
   if (phase === 'flight') return 'Dive! Click a spot or use Q W E / A S D'
   return ''
 }
