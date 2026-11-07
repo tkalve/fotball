@@ -162,8 +162,8 @@ function roleHint(role: Role, phase: string | undefined): string {
     if (phase === 'winding' || phase === 'flight') return 'Watch the keeper try to save it…'
     return ''
   }
-  if (phase === 'ready') return 'Get ready — watch for the shot and dive to save it'
-  if (phase === 'winding') return 'Read the run-up — dive to save it'
+  if (phase === 'ready') return 'Get set — slide to pick your side'
+  if (phase === 'winding') return 'Read the run-up and get in position'
   if (phase === 'flight') return 'Dive! Click a spot or use Q W E / A S D'
   return ''
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { KIT_STRIKER, PENALTY_SPOT_Z } from './constants'
 import { createFigure, swingLimb, type Figure } from './Figure'
 
-export const RUNUP_TIME = 1.15
+const RUNUP_TIME = 1.15
 const FOLLOW_TIME = 0.6
 /** Which foot swings; the other one plants beside the ball. */
 const KICK_LEG = 0
@@ -39,6 +39,19 @@ export class Striker {
     if (this.running) return
     this.running = true
     this.t = 0
+  }
+
+  /**
+   * Idle a few steps back from the ball before the run-up, sliding sideways
+   * towards `aimX` so the stance reads as a getting-ready tell.
+   */
+  ready(aimX: number, halfWidth: number) {
+    if (this.running) return
+    const bias = Math.max(-1, Math.min(1, aimX / halfWidth))
+    this.start.set(-bias * 1.9, 0, PENALTY_SPOT_Z + 3.3)
+    this.object.position.copy(this.start)
+    this.object.visible = true
+    this.pose(0)
   }
 
   get runUpProgress() {

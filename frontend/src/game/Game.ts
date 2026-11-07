@@ -4,7 +4,6 @@ import { Keeper } from './Keeper'
 import { Striker } from './Striker'
 import { World } from './World'
 import { solveShot } from './physics'
-import { RUNUP_TIME } from './Striker'
 import {
   BALL_RADIUS,
   GOAL_CROSSBAR_HEIGHT,
@@ -48,10 +47,9 @@ export type NetHooks = {
 const RESULT_HOLD = 1.9
 const FLIGHT_TIMEOUT = 4.5
 
-// Online only, on both ends: hold the ball on the spot for a wind-up (the keeper
-// watches the striker's run-up and reads the tell), then play the opening of the
-// shot in slow motion, easing back to real speed, so there is time to react.
-const WINDUP_TIME = RUNUP_TIME
+// Online only, on both ends: hold the ball on the spot for a wind-up (the
+// striker's run-up, which the keeper reads), then play the opening of the shot
+// in slow motion, easing back to real speed, so there is time to react.
 const SLOWMO_DURATION = 0.7
 const SLOWMO_SCALE = 0.3
 
@@ -94,7 +92,6 @@ export class Game {
   private runUpDelay = 0
 
   private pendingShot: { target: THREE.Vector3; speed: number; curve: number } | null = null
-  private windupTimer = 0
   private slowmoTime = 0
 
   private stats: Stats = {
@@ -221,21 +218,17 @@ export class Game {
 
   /**
    * Online only: hold the ball for a wind-up before launching, shown on both
-   * ends. The keeper watches the striker's run-up (leaning towards the shot) so
-   * they can read it; the striker gets the matching beat so the save attempt
-   * relayed back lands in time with the slow-motion flight.
+   * ends. The striker's run-up leans towards the shot, so on the keeper it is a
+   * tell to read; both ends share the beat so the save attempt relayed back
+   * lands in time with the slow-motion flight.
    */
   private beginWindup(target: THREE.Vector3, speed: number, curve: number) {
     this.pendingShot = { target: target.clone(), speed, curve }
     this.phase = 'winding'
     this.slowmoTime = 0
-    if (this.mode === 'keeper') {
-      const bias = clamp(target.x / this.world.goal.innerHalfWidth, -1, 1)
-      this.striker.reset(bias * 0.9)
-      this.striker.beginRunUp()
-    } else {
-      this.windupTimer = WINDUP_TIME
-    }
+    const bias = clamp(target.x / this.world.goal.innerHalfWidth, -1, 1)
+    this.striker.reset(bias)
+    this.striker.beginRunUp()
     this.emit()
   }
 
@@ -263,7 +256,6 @@ export class Game {
     this.flightTime = 0
     this.aiDiveAt = Infinity
     this.pendingShot = null
-    this.windupTimer = 0
     this.slowmoTime = 0
     this.ball.place(0, BALL_RADIUS, PENALTY_SPOT_Z)
     this.keeper.reset()
@@ -274,6 +266,9 @@ export class Game {
       const bias = clamp(this.shotTarget.x / this.world.goal.innerHalfWidth, -1, 1)
       this.striker.reset(bias * (Math.random() < 0.75 ? 1 : -0.4))
       this.runUpDelay = 0.7 + Math.random() * 0.6
+    } else if (this.mode === 'striker' && this.online) {
+      // Show the striker getting ready; the run-up flows on from here.
+      this.striker.ready(0, this.world.goal.innerHalfWidth)
     } else {
       this.striker.object.visible = false
     }
@@ -387,19 +382,24 @@ export class Game {
       this.powerT = (this.powerT + dt / POWER_SWEEP) % 2
     }
 
-    // Online wind-up: the ball waits on the spot before launching. On the keeper
-    // the striker's run-up drives the timing (and gives the tell to read); on the
-    // striker a plain timer keeps both ends roughly in step. The wind-up itself
-    // plays at real speed.
+    // Online wind-up: the ball waits on the spot while the striker's run-up
+    // plays out (at real speed), then the boot meeting the ball launches it.
     if (this.phase === 'winding' && this.pendingShot) {
-      const contact =
-        this.mode === 'keeper' ? this.striker.update(dt) : (this.windupTimer -= dt) <= 0
-      if (contact) {
+      if (this.striker.update(dt)) {
         const s = this.pendingShot
         this.pendingShot = null
         this.slowmoTime = 0
         this.launch(s.target, s.speed, s.curve)
       }
+    }
+
+    // Before the kick, each player's own figure slides towards their pointer so
+    // the stance telegraphs where they are leaning.
+    if (this.online && this.mode === 'striker' && (this.phase === 'ready' || this.phase === 'charging')) {
+      this.striker.ready(this.aim.x, this.world.goal.innerHalfWidth)
+    }
+    if (this.mode === 'keeper' && !this.keeper.hasCommitted && this.phase !== 'result') {
+      this.keeper.setReadyAim(this.aim.x)
     }
 
     // Both ends read the opening of the shot in slow motion, ramping back up to
@@ -420,8 +420,8 @@ export class Game {
       }
     } else if (this.mode === 'keeper' && !this.online) {
       this.striker.update(dt)
-    } else if (this.mode === 'keeper' && this.online && this.phase !== 'winding') {
-      // Keep the striker's follow-through alive, slowed with the rest of the shot.
+    } else if (this.online && (this.phase === 'flight' || this.phase === 'result')) {
+      // Both ends keep the striker's follow-through alive, slowed with the shot.
       this.striker.update(sdt)
     }
 
@@ -675,7 +675,8 @@ export class Game {
       this.chargeStartPx = this.pointerPx.x
       this.emit()
     } else {
-      if (this.keeper.hasCommitted) return
+      // No committing a save until the striker has actually kicked.
+      if (this.keeper.hasCommitted || this.phase !== 'flight') return
       this.keeper.dive(this.aim.x, this.aim.y)
       if (this.online) this.net?.dive({ x: this.aim.x, y: this.aim.y })
       this.emit()
@@ -700,7 +701,7 @@ export class Game {
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (this.mode !== 'keeper' || this.keeper.hasCommitted) return
+    if (this.mode !== 'keeper' || this.keeper.hasCommitted || this.phase !== 'flight') return
     const g = this.world.goal
     const map: Record<string, [number, number]> = {
       a: [-g.innerHalfWidth, 0.4],
@@ -748,8 +749,9 @@ export class Game {
       if (this.phase === 'winding' || this.phase === 'flight') return 'Watch the keeper try to save it…'
       return ''
     }
-    if (this.phase === 'winding') return 'Read the run-up — dive to save it'
-    if (this.phase === 'ready') return 'Pick your spot and click to dive — or use Q W E / A S D'
+    if (this.phase === 'winding') return 'Read the run-up and get in position'
+    if (this.phase === 'flight') return 'Dive! Click a spot or use Q W E / A S D'
+    if (this.phase === 'ready') return 'Get set — slide to pick your side'
     return ''
   }
 
