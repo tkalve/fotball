@@ -53,8 +53,8 @@ const FLIGHT_TIMEOUT = 4.5
 // Online only, on both ends: hold the ball on the spot for a wind-up (the
 // striker's run-up, which the keeper reads), then play the opening of the shot
 // in slow motion, easing back to real speed, so there is time to react.
-const SLOWMO_DURATION = 0.7
-const SLOWMO_SCALE = 0.3
+const SLOWMO_DURATION = 1.1
+const SLOWMO_SCALE = 0.2
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -738,8 +738,22 @@ export class Game {
     }
   }
 
-  private onPointerUp = () => {
-    if (this.mode !== 'striker' || this.phase !== 'charging') return
+  private onPointerUp = (e: PointerEvent) => {
+    if (this.mode === 'keeper') {
+      // Touch keepers lean with a finger already down, so a fresh tap during
+      // the short flight is awkward; let them lift the finger to dive at the
+      // tracked spot instead. (A desktop click is a down+up, so this fires too.)
+      if (this.keeper.hasCommitted || this.phase !== 'flight') return
+      const r = this.canvas.getBoundingClientRect()
+      this.pointerPx.set(e.clientX - r.left, e.clientY - r.top)
+      this.pointer.set((this.pointerPx.x / r.width) * 2 - 1, -(this.pointerPx.y / r.height) * 2 + 1)
+      this.updateAim()
+      this.keeper.dive(this.aim.x, this.aim.y)
+      if (this.online) this.net?.dive({ x: this.aim.x, y: this.aim.y })
+      this.emit()
+      return
+    }
+    if (this.phase !== 'charging') return
     const power = this.powerLevel()
     const speed = MIN_SHOT_SPEED + power * (MAX_SHOT_SPEED - MIN_SHOT_SPEED)
     this.shotTarget.copy(this.aim)
@@ -805,7 +819,7 @@ export class Game {
       return ''
     }
     if (this.phase === 'winding') return 'Read the run-up and get in position'
-    if (this.phase === 'flight') return 'Dive! Click a spot or use Q W E / A S D'
+    if (this.phase === 'flight') return 'Dive! Tap or drag to a spot and lift — or use Q W E / A S D'
     if (this.phase === 'ready') return 'Get set — slide to pick your side'
     return ''
   }
