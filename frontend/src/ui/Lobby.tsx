@@ -1,50 +1,40 @@
-import { useState } from 'react'
-import { CODE_COLORS, CODE_OBJECTS } from '../net/protocol'
+import type { LoungePlayer } from '../net/protocol'
 
 export type OfferView = { opponentName: string; secondsLeft: number; accepted: boolean }
 
 export function Lobby({
   connected,
-  code,
-  waiting,
-  ready,
+  players,
   offer,
   error,
   name,
   onName,
-  onReady,
+  onInvite,
   onAccept,
   onDecline,
-  onJoinCode,
 }: {
   connected: boolean
-  code: { color: string; object: string } | null
-  waiting: number
-  ready: boolean
+  players: LoungePlayer[]
   offer: OfferView | null
   error: string | null
   name: string
   onName: (name: string) => void
-  onReady: () => void
+  onInvite: (id: string) => void
   onAccept: () => void
   onDecline: () => void
-  onJoinCode: (color: string, object: string) => void
 }) {
-  const [joinColor, setJoinColor] = useState('')
-  const [joinObject, setJoinObject] = useState('')
-
   if (offer) {
     return (
       <div className="lobby">
         <div className="pair-card">
-          <p className="eyebrow">Opponent found</p>
+          <p className="eyebrow">{offer.accepted ? 'Invite sent' : 'You’re invited'}</p>
           <h1>
             Play against <span>{offer.opponentName}</span>?
           </h1>
           {offer.accepted ? (
             <p className="waiting-note">Waiting for them to say yes…</p>
           ) : (
-            <p className="waiting-note">Both of you have to say yes to start.</p>
+            <p className="waiting-note">Say yes to kick off.</p>
           )}
           <div className="countdown" role="timer">
             <div className="ring" style={{ '--p': offer.secondsLeft / 30 } as React.CSSProperties}>
@@ -89,58 +79,30 @@ export function Lobby({
           />
         </label>
 
-        {!connected ? (
-          <p className="status-line">Connecting to the lounge…</p>
-        ) : ready ? (
-          <p className="status-line pulse">
-            Looking for an opponent… {waiting > 1 ? `${waiting} players here` : 'you’re the only one here'}
-          </p>
-        ) : (
-          <button type="button" className="primary big" onClick={onReady}>
-            Find a match
-          </button>
-        )}
-
         {error && <p className="error-line">{error}</p>}
 
-        {code && (
-          <div className="code-block">
-            <p className="eyebrow">Your secret code — share it with a friend</p>
-            <div className="code-chip">
-              <span className={`swatch ${code.color}`} />
-              {code.color} {code.object}
-            </div>
-          </div>
-        )}
-
-        <div className="join-block">
-          <p className="eyebrow">Got a friend’s code? Pick their colour and thing</p>
-          <div className="join-row">
-            <select value={joinColor} onChange={(e) => setJoinColor(e.target.value)}>
-              <option value="">colour…</option>
-              {CODE_COLORS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+        <div className="players-block">
+          <p className="eyebrow">Players online</p>
+          {!connected ? (
+            <p className="status-line">Connecting to the lounge…</p>
+          ) : players.length === 0 ? (
+            <p className="status-line">No one else is here yet. Keep this open and wait for a friend.</p>
+          ) : (
+            <ul className="player-list">
+              {players.map((p) => (
+                <li key={p.id} className={p.busy ? 'player-row busy' : 'player-row'}>
+                  <span className="player-name">{p.name}</span>
+                  {p.busy ? (
+                    <span className="player-tag">In a game</span>
+                  ) : (
+                    <button type="button" className="primary" onClick={() => onInvite(p.id)}>
+                      Invite
+                    </button>
+                  )}
+                </li>
               ))}
-            </select>
-            <select value={joinObject} onChange={(e) => setJoinObject(e.target.value)}>
-              <option value="">thing…</option>
-              {CODE_OBJECTS.map((o) => (
-                <option key={o} value={o}>
-                  {o}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="primary"
-              disabled={!joinColor || !joinObject}
-              onClick={() => onJoinCode(joinColor, joinObject)}
-            >
-              Join
-            </button>
-          </div>
+            </ul>
+          )}
         </div>
       </div>
     </div>

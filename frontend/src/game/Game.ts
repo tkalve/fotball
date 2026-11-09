@@ -265,6 +265,59 @@ export class Game {
     }
   }
 
+  /**
+   * Dev-only handles for the Playwright two-player harness: drive the same code
+   * paths as real input and read back the networked scene state. Attached to
+   * `window.fotball` in DEV only, so it never ships to production.
+   */
+  get test() {
+    return {
+      /** Move the aim; the update loop relays it and leans the local figure. */
+      aim: (x: number) => this.aim.set(x, this.aim.y, 0),
+      /** Striker: fire a shot, as releasing a charged pointer would. */
+      shoot: (x: number, y: number, power = 0.7, curve = 0) => {
+        if (this.mode !== 'striker' || (this.phase !== 'ready' && this.phase !== 'charging')) return
+        const speed = MIN_SHOT_SPEED + power * (MAX_SHOT_SPEED - MIN_SHOT_SPEED)
+        this.aim.set(x, y, 0)
+        this.curve = curve
+        this.shotTarget.copy(this.aim)
+        if (this.online) {
+          this.net?.shoot({ target: { x, y }, speed, curve })
+          this.beginWindup(this.shotTarget, speed, curve)
+        } else {
+          this.launch(this.shotTarget, speed, curve)
+        }
+        this.emit()
+      },
+      /** Keeper: commit a dive, as a tap/lift during flight would. */
+      dive: (x: number, y: number) => {
+        if (this.mode !== 'keeper' || this.keeper.hasCommitted || this.phase !== 'flight') return
+        this.keeper.dive(x, y)
+        if (this.online) this.net?.dive({ x, y })
+        this.emit()
+      },
+      /** A flat snapshot of the networked scene for assertions. */
+      snapshot: () => ({
+        mode: this.mode,
+        phase: this.phase,
+        loading: this.loading,
+        outcome: this.outcome,
+        keeper: {
+          x: this.keeper.object.position.x,
+          rotY: this.keeper.object.rotation.y,
+          kit: this.keeper.figure.shirt.color.getHex(),
+          diving: this.keeper.hasCommitted,
+        },
+        striker: {
+          x: this.striker.object.position.x,
+          rotY: this.striker.object.rotation.y,
+          kit: this.striker.figure.shirt.color.getHex(),
+          visible: this.striker.object.visible,
+        },
+      }),
+    }
+  }
+
   // ---------------------------------------------------------------- round flow
 
   private resetRound() {

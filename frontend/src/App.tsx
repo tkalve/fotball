@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { MatchClient } from './net/MatchClient'
-import type { Role, ServerMessage } from './net/protocol'
+import type { LoungePlayer, Role, ServerMessage } from './net/protocol'
 import { Lobby, type OfferView } from './ui/Lobby'
 import { MatchStage } from './ui/MatchStage'
 import './index.css'
 
-type MatchInfo = { role: Role; opponentName: string; target: number }
+type MatchInfo = { role: Role; opponentName: string; opponentId: string; target: number }
 
 const NAME_KEY = 'fotball.name'
 
@@ -14,9 +14,7 @@ export default function App() {
   const offerTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [connected, setConnected] = useState(false)
-  const [code, setCode] = useState<{ color: string; object: string } | null>(null)
-  const [waiting, setWaiting] = useState(1)
-  const [ready, setReady] = useState(false)
+  const [players, setPlayers] = useState<LoungePlayer[]>([])
   const [offer, setOffer] = useState<OfferView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [match, setMatch] = useState<MatchInfo | null>(null)
@@ -29,17 +27,13 @@ export default function App() {
     const offStatus = client.onStatus((s) => setConnected(s === 'open'))
     const off = client.on((msg: ServerMessage) => {
       switch (msg.type) {
-        case 'welcome':
-          setCode(msg.code)
-          break
         case 'lounge':
-          setWaiting(msg.waiting)
-          setReady(msg.ready)
+          setPlayers(msg.players)
           break
         case 'offer':
           stopOfferTimer()
           setError(null)
-          setOffer({ opponentName: msg.opponentName, secondsLeft: msg.seconds, accepted: false })
+          setOffer({ opponentName: msg.opponentName, secondsLeft: msg.seconds, accepted: !msg.incoming })
           offerTimer.current = setInterval(() => {
             setOffer((o) => (o ? { ...o, secondsLeft: Math.max(0, o.secondsLeft - 1) } : o))
           }, 1000)
@@ -53,7 +47,7 @@ export default function App() {
           stopOfferTimer()
           setOffer(null)
           setError(null)
-          setMatch({ role: msg.role, opponentName: msg.opponentName, target: msg.target })
+          setMatch({ role: msg.role, opponentName: msg.opponentName, opponentId: msg.opponentId, target: msg.target })
           break
         case 'error':
           setError(msg.message)
@@ -86,8 +80,12 @@ export default function App() {
   }
 
   const exitMatch = (playAgain: boolean) => {
+    const opponentId = match?.opponentId
     setMatch(null)
-    if (playAgain) clientRef.current?.send({ type: 'ready' })
+    if (playAgain && opponentId) {
+      setError(null)
+      clientRef.current?.send({ type: 'invite', targetId: opponentId })
+    }
   }
 
   if (match && clientRef.current) {
@@ -105,14 +103,12 @@ export default function App() {
   return (
     <Lobby
       connected={connected}
-      code={code}
-      waiting={waiting}
-      ready={ready}
+      players={players}
       offer={offer}
       error={error}
       name={name}
       onName={changeName}
-      onReady={() => clientRef.current?.send({ type: 'ready' })}
+      onInvite={(id) => clientRef.current?.send({ type: 'invite', targetId: id })}
       onAccept={() => {
         clientRef.current?.send({ type: 'accept' })
         setOffer((o) => (o ? { ...o, accepted: true } : o))
@@ -122,7 +118,6 @@ export default function App() {
         stopOfferTimer()
         setOffer(null)
       }}
-      onJoinCode={(color, object) => clientRef.current?.send({ type: 'joinCode', color, object })}
     />
   )
 }

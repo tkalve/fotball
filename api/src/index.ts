@@ -1,7 +1,4 @@
 import {
-  CODE_COLORS,
-  CODE_OBJECTS,
-  codeKey,
   type ClientMessage,
   type Outcome,
   type ServerMessage,
@@ -31,12 +28,8 @@ type Player = {
   id: string
   name: string
   ws: WebSocket
-  color: string
-  object: string
-  /** 'lounge' = free, 'offered' = in a pairing offer, 'match' = playing. */
+  /** 'lounge' = free to invite, 'offered' = in an invite, 'match' = playing. */
   status: 'lounge' | 'offered' | 'match'
-  /** Willing to be auto-paired. Reset to false after declining/timeout. */
-  ready: boolean
   joinedAt: number
   offerId?: string
   matchId?: string
@@ -44,7 +37,9 @@ type Player = {
 
 type Offer = {
   id: string
+  /** The player who sent the invite (already committed). */
   a: string
+  /** The invited player, who must accept. */
   b: string
   aAccepted: boolean
   bAccepted: boolean
@@ -71,7 +66,6 @@ const RESULT_PAUSE_MS = 2600
 export class GameHub implements DurableObject {
   private players = new Map<string, Player>()
   private sockets = new Map<WebSocket, string>()
-  private codes = new Map<string, string>() // "blue apple" -> playerId
   private offers = new Map<string, Offer>()
   private matches = new Map<string, Match>()
   private seq = 0
@@ -92,20 +86,15 @@ export class GameHub implements DurableObject {
 
   private onConnect(ws: WebSocket) {
     const id = this.uid('p')
-    const { color, object } = this.allocateCode()
     const player: Player = {
       id,
       name: '',
       ws,
-      color,
-      object,
       status: 'lounge',
-      ready: false,
       joinedAt: Date.now(),
     }
     this.players.set(id, player)
     this.sockets.set(ws, id)
-    this.codes.set(codeKey(color, object), id)
 
     ws.addEventListener('message', (e) => {
       let msg: ClientMessage
@@ -120,7 +109,7 @@ export class GameHub implements DurableObject {
     ws.addEventListener('close', bye)
     ws.addEventListener('error', bye)
 
-    this.send(player, { type: 'welcome', id, code: { color, object } })
+    this.send(player, { type: 'welcome', id })
     this.broadcastLounge()
   }
 
@@ -128,12 +117,10 @@ export class GameHub implements DurableObject {
     if (!this.players.has(player.id)) return
     this.players.delete(player.id)
     this.sockets.delete(player.ws)
-    this.codes.delete(codeKey(player.color, player.object))
 
     if (player.offerId) this.cancelOffer(player.offerId, 'Your opponent left.')
     if (player.matchId) this.endMatch(player.matchId, player.id)
     this.broadcastLounge()
-    this.matchmake()
   }
 
   // ------------------------------------------------------------------ messages
@@ -142,25 +129,16 @@ export class GameHub implements DurableObject {
     switch (msg.type) {
       case 'hello':
         player.name = sanitizeName(msg.name)
-        player.ready = true
-        this.matchmake()
-        this.sendLounge(player)
+        this.broadcastLounge()
         break
-      case 'ready':
-        if (player.status === 'lounge') {
-          player.ready = true
-          this.matchmake()
-          this.broadcastLounge()
-        }
+      case 'invite':
+        this.invite(player, msg.targetId)
         break
       case 'accept':
         this.acceptOffer(player)
         break
       case 'decline':
-        if (player.offerId) this.cancelOffer(player.offerId, 'Offer declined.', player.id)
-        break
-      case 'joinCode':
-        this.joinByCode(player, msg.color, msg.object)
+        if (player.offerId) this.cancelOffer(player.offerId, 'Invite declined.', player.id)
         break
       case 'leave':
         this.handleLeave(player)
@@ -181,26 +159,26 @@ export class GameHub implements DurableObject {
   }
 
   private handleLeave(player: Player) {
-    if (player.offerId) this.cancelOffer(player.offerId, 'Offer cancelled.', player.id)
+    if (player.offerId) this.cancelOffer(player.offerId, 'Invite cancelled.', player.id)
     if (player.matchId) this.endMatch(player.matchId, player.id)
-    player.ready = false
     player.status = 'lounge'
     this.broadcastLounge()
-    this.matchmake()
   }
 
-  // --------------------------------------------------------------- matchmaking
+  // ------------------------------------------------------------------- invites
 
-  private matchmake() {
-    const free = [...this.players.values()]
-      .filter((p) => p.status === 'lounge' && p.ready)
-      .sort((a, b) => a.joinedAt - b.joinedAt)
-
-    while (free.length >= 2) {
-      const a = free.shift()!
-      const b = free.shift()!
-      this.makeOffer(a, b)
+  private invite(player: Player, targetId: string) {
+    if (player.status !== 'lounge') return
+    const target = this.players.get(targetId)
+    if (!target || target.id === player.id) {
+      this.send(player, { type: 'error', message: 'That player is no longer available.' })
+      return
     }
+    if (target.status !== 'lounge') {
+      this.send(player, { type: 'error', message: 'That player is busy right now.' })
+      return
+    }
+    this.makeOffer(player, target)
   }
 
   private makeOffer(a: Player, b: Player) {
@@ -208,9 +186,11 @@ export class GameHub implements DurableObject {
     a.status = b.status = 'offered'
     a.offerId = b.offerId = id
     const timer = setTimeout(() => this.cancelOffer(id, 'Nobody confirmed in time.'), OFFER_SECONDS * 1000)
-    this.offers.set(id, { id, a: a.id, b: b.id, aAccepted: false, bAccepted: false, timer })
-    this.send(a, { type: 'offer', opponentName: b.name || 'a new player', seconds: OFFER_SECONDS })
-    this.send(b, { type: 'offer', opponentName: a.name || 'a new player', seconds: OFFER_SECONDS })
+    // The inviter (a) has already committed; only the invited player (b) must accept.
+    this.offers.set(id, { id, a: a.id, b: b.id, aAccepted: true, bAccepted: false, timer })
+    this.send(a, { type: 'offer', opponentName: b.name || 'a new player', seconds: OFFER_SECONDS, incoming: false })
+    this.send(b, { type: 'offer', opponentName: a.name || 'a new player', seconds: OFFER_SECONDS, incoming: true })
+    this.broadcastLounge()
   }
 
   private acceptOffer(player: Player) {
@@ -237,29 +217,9 @@ export class GameHub implements DurableObject {
       if (!p || p.offerId !== offerId) continue
       p.offerId = undefined
       p.status = 'lounge'
-      // The person who said no sits out until they ask again; the other stays keen.
-      p.ready = declinerId ? pid !== declinerId : false
-      this.send(p, { type: 'offerCancelled', reason })
-      this.sendLounge(p)
+      if (declinerId ? pid !== declinerId : true) this.send(p, { type: 'offerCancelled', reason })
     }
-    this.matchmake()
-  }
-
-  private joinByCode(player: Player, color: string, object: string) {
-    const ownerId = this.codes.get(codeKey(color, object))
-    const owner = ownerId ? this.players.get(ownerId) : undefined
-    if (!owner || owner.id === player.id) {
-      this.send(player, { type: 'error', message: 'No one is waiting with that code right now.' })
-      return
-    }
-    if (owner.status === 'match') {
-      this.send(player, { type: 'error', message: 'That player is already in a match.' })
-      return
-    }
-    // A deliberate code join trumps any pending auto-offer on either side.
-    if (owner.offerId) this.cancelOffer(owner.offerId, 'Matched with a shared code.')
-    if (player.offerId) this.cancelOffer(player.offerId, 'Matched with a shared code.')
-    this.startMatch(owner, player)
+    this.broadcastLounge()
   }
 
   // --------------------------------------------------------------------- match
@@ -269,7 +229,6 @@ export class GameHub implements DurableObject {
     a.status = b.status = 'match'
     a.matchId = b.matchId = id
     a.offerId = b.offerId = undefined
-    a.ready = b.ready = false
     const match: Match = {
       id,
       players: [a.id, b.id],
@@ -279,8 +238,8 @@ export class GameHub implements DurableObject {
       state: 'await-shoot',
     }
     this.matches.set(id, match)
-    this.send(a, { type: 'matchStart', role: 'striker', opponentName: b.name || 'Player 2', target: TARGET_GOALS })
-    this.send(b, { type: 'matchStart', role: 'keeper', opponentName: a.name || 'Player 1', target: TARGET_GOALS })
+    this.send(a, { type: 'matchStart', role: 'striker', opponentName: b.name || 'Player 2', opponentId: b.id, target: TARGET_GOALS })
+    this.send(b, { type: 'matchStart', role: 'keeper', opponentName: a.name || 'Player 1', opponentId: a.id, target: TARGET_GOALS })
     this.broadcastLounge()
   }
 
@@ -368,7 +327,6 @@ export class GameHub implements DurableObject {
       if (!p) continue
       p.status = 'lounge'
       p.matchId = undefined
-      p.ready = false
     }
     this.broadcastLounge()
   }
@@ -384,7 +342,6 @@ export class GameHub implements DurableObject {
       if (!p) continue
       p.status = 'lounge'
       p.matchId = undefined
-      p.ready = false
       if (pid !== leaverId) this.send(p, { type: 'opponentLeft' })
     }
     this.broadcastLounge()
@@ -408,8 +365,11 @@ export class GameHub implements DurableObject {
   }
 
   private sendLounge(player: Player) {
-    const waiting = [...this.players.values()].filter((p) => p.status !== 'match').length
-    this.send(player, { type: 'lounge', waiting, ready: player.ready })
+    const players = [...this.players.values()]
+      .filter((p) => p.id !== player.id)
+      .sort((a, b) => a.joinedAt - b.joinedAt)
+      .map((p) => ({ id: p.id, name: p.name || 'Player', busy: p.status !== 'lounge' }))
+    this.send(player, { type: 'lounge', players })
   }
 
   private send(player: Player, msg: ServerMessage) {
@@ -417,24 +377,6 @@ export class GameHub implements DurableObject {
       player.ws.send(JSON.stringify(msg))
     } catch {
       /* socket already gone */
-    }
-  }
-
-  private allocateCode(): { color: string; object: string } {
-    const used = new Set(this.codes.keys())
-    const total = CODE_COLORS.length * CODE_OBJECTS.length
-    if (used.size < total) {
-      for (let tries = 0; tries < 200; tries++) {
-        const color = CODE_COLORS[(Math.random() * CODE_COLORS.length) | 0]
-        const object = CODE_OBJECTS[(Math.random() * CODE_OBJECTS.length) | 0]
-        if (!used.has(codeKey(color, object))) return { color, object }
-      }
-    }
-    // Deterministic fallback once every combination is taken.
-    const n = this.seq
-    return {
-      color: CODE_COLORS[n % CODE_COLORS.length],
-      object: CODE_OBJECTS[(n / CODE_COLORS.length | 0) % CODE_OBJECTS.length],
     }
   }
 

@@ -7,13 +7,15 @@ export type Vec2 = { x: number; y: number }
 export type Outcome = 'goal' | 'save' | 'post' | 'miss'
 export type Role = 'striker' | 'keeper'
 
+/** A player visible in the lounge list. `busy` means they can't be invited. */
+export type LoungePlayer = { id: string; name: string; busy: boolean }
+
 /** Messages the browser sends to the server. */
 export type ClientMessage =
-  | { type: 'hello'; name?: string }
-  | { type: 'ready' } // (re)join the auto-pair pool
-  | { type: 'accept' } // accept a pairing offer
-  | { type: 'decline' } // decline a pairing offer
-  | { type: 'joinCode'; color: string; object: string }
+  | { type: 'hello'; name?: string } // announce / update our display name
+  | { type: 'invite'; targetId: string } // invite another lounge player to play
+  | { type: 'accept' } // accept an incoming invite
+  | { type: 'decline' } // decline an incoming invite / cancel one we sent
   | { type: 'leave' } // leave the current match / offer, back to lounge
   | { type: 'aim'; x: number } // lateral lean before committing, relayed to the opponent
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
@@ -22,11 +24,11 @@ export type ClientMessage =
 
 /** Messages the server sends to the browser. */
 export type ServerMessage =
-  | { type: 'welcome'; id: string; code: { color: string; object: string } }
-  | { type: 'lounge'; waiting: number; ready: boolean }
-  | { type: 'offer'; opponentName: string; seconds: number }
+  | { type: 'welcome'; id: string }
+  | { type: 'lounge'; players: LoungePlayer[] }
+  | { type: 'offer'; opponentName: string; seconds: number; incoming: boolean }
   | { type: 'offerCancelled'; reason: string }
-  | { type: 'matchStart'; role: Role; opponentName: string; target: number }
+  | { type: 'matchStart'; role: Role; opponentName: string; opponentId: string; target: number }
   | { type: 'round'; index: number; role: Role; scoreYou: number; scoreThem: number }
   | { type: 'aim'; x: number } // the opponent's lateral lean before committing
   | { type: 'shoot'; target: Vec2; speed: number; curve: number }
@@ -41,41 +43,3 @@ export type ServerMessage =
     }
   | { type: 'opponentLeft' }
   | { type: 'error'; message: string }
-
-/** Kid-friendly share codes: a colour plus an object, e.g. "blue apple". */
-export const CODE_COLORS = [
-  'red',
-  'orange',
-  'yellow',
-  'green',
-  'blue',
-  'purple',
-  'pink',
-  'brown',
-  'black',
-  'white',
-  'silver',
-  'gold',
-] as const
-
-export const CODE_OBJECTS = [
-  'apple',
-  'banana',
-  'elephant',
-  'tiger',
-  'rocket',
-  'robot',
-  'dragon',
-  'pizza',
-  'cookie',
-  'panda',
-  'shark',
-  'guitar',
-  'balloon',
-  'cactus',
-  'penguin',
-  'dinosaur',
-] as const
-
-export const codeKey = (color: string, object: string) =>
-  `${color.trim().toLowerCase()} ${object.trim().toLowerCase()}`
